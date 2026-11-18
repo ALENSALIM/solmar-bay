@@ -6,6 +6,8 @@
 
 Solmar Bay is an original open-world crime game that runs in a desktop browser from static files: a sun-soaked coastal city to explore on foot and by car, traffic and pedestrians, cars to steal, a wanted level with police who chase you, five story missions, combat, a HUD with a minimap, a start screen and a save. Everything in it — the city, the characters, the vehicles, the names, the story, the art, the sound and the music — is original.
 
+Rico Vega is home after three years away. Work the five missions — Welcome Home, The Pickup, Street Heat, Grand Larceny and The Big Score — earn up to $5,000 a job, unlock the SMG, and climb the underworld while the Solmar Bay police try to bring you in.
+
 ## Run it
 
 ```sh
