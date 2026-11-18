@@ -1,4 +1,4 @@
-[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01) [![rank](https://make.fun/badge/gta6-01/ALENSALIM/solmar-bay/rank.svg)](https://make.fun/bounty/gta6-01) [![reward](https://make.fun/badge/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
+[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01) [![rank](https://make.fun/badge/gta6-01/ALENSALIM/solmar-bay/rank.svg)](https://make.fun/bounty/gta6-01) [![reward](https://make.fun/badge/gta6-01/ALENSALIM/solmar-bay/reward.svg)](https://make.fun/bounty/gta6-01)
 
 # Solmar Bay
 
