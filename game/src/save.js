@@ -1,30 +1,29 @@
-// Save game for Solmar Bay: missions finished, money and weapons, in localStorage.
-
+// Save / load progress in localStorage. Guarded: headless or private modes
+// can throw, and the game must keep working without a save.
 const KEY = 'solmar-bay-save-v1';
 
 export function defaultSave() {
-  return { money: 250, missionsDone: [], smg: false, health: 100 };
+  return { money: 250, missionsDone: [], smgUnlocked: false, best: 0 };
 }
 
 export function loadSave() {
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (!raw) return null;
+    if (!raw) return defaultSave();
     const data = JSON.parse(raw);
-    if (!data || typeof data !== 'object') return null;
     const base = defaultSave();
     return {
       money: typeof data.money === 'number' ? data.money : base.money,
-      missionsDone: Array.isArray(data.missionsDone) ? data.missionsDone.filter((n) => Number.isInteger(n)) : [],
-      smg: data.smg === true,
-      health: typeof data.health === 'number' ? data.health : base.health,
+      missionsDone: Array.isArray(data.missionsDone) ? data.missionsDone : [],
+      smgUnlocked: !!data.smgUnlocked,
+      best: typeof data.best === 'number' ? data.best : 0,
     };
   } catch {
-    return null;
+    return defaultSave();
   }
 }
 
-export function storeSave(data) {
+export function writeSave(data) {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(data));
     return true;
@@ -37,6 +36,6 @@ export function clearSave() {
   try {
     window.localStorage.removeItem(KEY);
   } catch {
-    // storage unavailable: nothing to clear
+    // ignore
   }
 }
