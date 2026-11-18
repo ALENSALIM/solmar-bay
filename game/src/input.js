@@ -1,68 +1,71 @@
-// Keyboard + mouse state. Edge-triggered "pressed" keys are consumed once
-// per frame by the game loop, so a single keypress never double-fires.
-// Mouse look uses movement deltas (no pointer lock required, so headless
-// tests can drive the camera with synthetic mouse events).
-export function makeInput() {
-  return {
-    down: new Set(),
-    pressed: new Set(),
-    mouseDX: 0,
-    mouseDY: 0,
-    mouseDown: false,
-    mouseClicked: false,
-    wheel: 0,
-  };
-}
+// Keyboard and mouse input for Solmar Bay. Tracks held keys, pointer-lock
+// look deltas and mouse buttons; also fires one-shot callbacks for keys the
+// game wants as presses (E to enter a car, Q to swap weapon, R to reload).
+export class Input {
+  constructor() {
+    this.keys = new Set();
+    this.lookDX = 0;
+    this.lookDY = 0;
+    this.mouseDown = false;
+    this.mouseHeld = false;
+    this.locked = false;
+    this.pressHandlers = new Map();
+    this.anyHandlers = [];
+    this.enabled = true;
+  }
 
-export function attachInput(input, canvas) {
-  window.addEventListener('keydown', (e) => {
-    if (e.repeat) return;
-    input.down.add(e.code);
-    input.pressed.add(e.code);
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
-      e.preventDefault();
-    }
-  });
-  window.addEventListener('keyup', (e) => {
-    input.down.delete(e.code);
-  });
-  window.addEventListener('blur', () => {
-    input.down.clear();
-    input.mouseDown = false;
-  });
-  canvas.addEventListener('mousemove', (e) => {
-    input.mouseDX += e.movementX || 0;
-    input.mouseDY += e.movementY || 0;
-  });
-  canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 0) {
-      input.mouseDown = true;
-      input.mouseClicked = true;
-    }
-  });
-  window.addEventListener('mouseup', (e) => {
-    if (e.button === 0) input.mouseDown = false;
-  });
-  canvas.addEventListener('wheel', (e) => {
-    input.wheel += e.deltaY;
-    e.preventDefault();
-  }, { passive: false });
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-}
+  attach(canvas) {
+    window.addEventListener('keydown', (ev) => {
+      if (!this.enabled) return;
+      if (ev.repeat) return;
+      this.keys.add(ev.code);
+      const handler = this.pressHandlers.get(ev.code);
+      if (handler) handler(ev);
+      for (const fn of this.anyHandlers) fn(ev.code);
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.code)) {
+        ev.preventDefault();
+      }
+    });
+    window.addEventListener('keyup', (ev) => { this.keys.delete(ev.code); });
+    window.addEventListener('blur', () => { this.keys.clear(); this.mouseHeld = false; });
+    document.addEventListener('mousemove', (ev) => {
+      if (!this.locked) return;
+      this.lookDX += ev.movementX || 0;
+      this.lookDY += ev.movementY || 0;
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === canvas;
+    });
+    canvas.addEventListener('mousedown', (ev) => {
+      if (ev.button === 0) { this.mouseDown = true; this.mouseHeld = true; }
+    });
+    window.addEventListener('mouseup', (ev) => {
+      if (ev.button === 0) { this.mouseDown = false; this.mouseHeld = false; }
+    });
+    canvas.addEventListener('click', () => {
+      if (!this.locked && this.enabled) {
+        try { canvas.requestPointerLock(); } catch (err) { /* pointer lock optional */ }
+      }
+    });
+  }
 
-export function isDown(input, code) {
-  return input.down.has(code);
-}
+  onPress(code, fn) { this.pressHandlers.set(code, fn); }
+  onAnyKey(fn) { this.anyHandlers.push(fn); }
+  down(code) { return this.keys.has(code); }
 
-export function wasPressed(input, code) {
-  return input.pressed.has(code);
-}
+  consumeLook() {
+    const out = { dx: this.lookDX, dy: this.lookDY };
+    this.lookDX = 0; this.lookDY = 0;
+    return out;
+  }
 
-// Call once per frame after the game has read the input: edges and deltas reset.
-export function endFrame(input) {
-  input.pressed.clear();
-  input.mouseDX = 0;
-  input.mouseDY = 0;
-  input.mouseClicked = false;
-  input.wheel = 0;
+  consumeClick() {
+    const clicked = this.mouseDown;
+    this.mouseDown = false;
+    return clicked;
+  }
+
+  exitPointerLock() {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
 }
