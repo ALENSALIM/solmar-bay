@@ -1,28 +1,32 @@
-// The save file: money, story progress and the player's place in the city, kept in
-// this browser's localStorage so a visit can continue where it left off.
-export const SAVE_KEY = 'solmar-bay-save-v1';
+// Save game for Solmar Bay: missions finished, money and weapons, in localStorage.
 
-export function readSave() {
+const KEY = 'solmar-bay-save-v1';
+
+export function defaultSave() {
+  return { money: 250, missionsDone: [], smg: false, health: 100 };
+}
+
+export function loadSave() {
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
+    const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (typeof data !== 'object' || data === null) return null;
+    if (!data || typeof data !== 'object') return null;
+    const base = defaultSave();
     return {
-      money: typeof data.money === 'number' ? data.money : 0,
+      money: typeof data.money === 'number' ? data.money : base.money,
       missionsDone: Array.isArray(data.missionsDone) ? data.missionsDone.filter((n) => Number.isInteger(n)) : [],
-      weapons: Array.isArray(data.weapons) ? data.weapons.filter((w) => typeof w === 'string') : ['fists', 'pistol'],
-      px: typeof data.px === 'number' ? data.px : 0,
-      pz: typeof data.pz === 'number' ? data.pz : 0,
+      smg: data.smg === true,
+      health: typeof data.health === 'number' ? data.health : base.health,
     };
   } catch {
     return null;
   }
 }
 
-export function writeSave(data) {
+export function storeSave(data) {
   try {
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    window.localStorage.setItem(KEY, JSON.stringify(data));
     return true;
   } catch {
     return false;
@@ -30,5 +34,9 @@ export function writeSave(data) {
 }
 
 export function clearSave() {
-  try { window.localStorage.removeItem(SAVE_KEY); } catch { /* storage can be off */ }
+  try {
+    window.localStorage.removeItem(KEY);
+  } catch {
+    // storage unavailable: nothing to clear
+  }
 }
