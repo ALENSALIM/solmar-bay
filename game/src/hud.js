@@ -1,228 +1,178 @@
-// HUD for Solmar Bay: money, wanted stars, health, weapon and ammo, speed,
-// mission objective with distance, and a circular minimap. The title, pause,
-// busted and wasted screens are DOM overlays built here.
+// HUD: money, wanted stars, health, weapon/ammo, speed, objective with
+// distance, a circular minimap, flash messages, and the title / pause /
+// busted / wasted screens. All DOM over the canvas; the minimap is 2D canvas.
+import { PITCH } from './city.js';
+import { objectiveText } from './missions.js';
 
-import { ROAD_LINES } from './city.js';
+function el(tag, id, parent, style) {
+  const e = document.createElement(tag);
+  if (id) e.id = id;
+  if (style) e.setAttribute('style', style);
+  parent.appendChild(e);
+  return e;
+}
 
-const STAR_ON = '\u2605';
-const STAR_OFF = '\u2606';
+export function buildHud(W) {
+  const root = document.getElementById('hud');
+  const hud = {};
+  hud.money = el('div', 'hud-money', root, 'position:absolute;top:14px;left:16px;font-size:30px;font-weight:800;color:#fff;text-shadow:0 2px 6px #000;');
+  hud.stars = el('div', 'hud-stars', root, 'position:absolute;top:52px;left:16px;font-size:26px;letter-spacing:4px;color:#ffd23f;text-shadow:0 2px 6px #000;');
+  hud.healthWrap = el('div', null, root, 'position:absolute;top:14px;right:16px;width:220px;text-align:right;');
+  hud.healthLabel = el('div', null, hud.healthWrap, 'font-size:13px;color:#fff;text-shadow:0 1px 4px #000;margin-bottom:3px;');
+  hud.healthBar = el('div', null, hud.healthWrap, 'height:14px;background:rgba(0,0,0,.55);border:1px solid #fff;border-radius:7px;overflow:hidden;');
+  hud.healthFill = el('div', null, hud.healthBar, 'height:100%;width:100%;background:#2ecc71;');
+  hud.weapon = el('div', null, hud.healthWrap, 'font-size:20px;font-weight:700;color:#fff;text-shadow:0 1px 4px #000;margin-top:6px;');
+  hud.objective = el('div', null, root, 'position:absolute;left:50%;bottom:96px;transform:translateX(-50%);font-size:19px;font-weight:700;color:#fff;background:rgba(0,0,0,.5);padding:8px 18px;border-radius:20px;white-space:nowrap;');
+  hud.speed = el('div', null, root, 'position:absolute;left:16px;bottom:16px;font-size:34px;font-weight:800;color:#fff;text-shadow:0 2px 6px #000;');
+  hud.flash = el('div', null, root, 'position:absolute;left:50%;top:32%;transform:translateX(-50%);font-size:30px;font-weight:800;color:#ffd23f;text-shadow:0 2px 8px #000;text-align:center;');
+  hud.mapWrap = el('div', null, root, 'position:absolute;right:16px;bottom:16px;width:190px;height:190px;border-radius:50%;overflow:hidden;border:3px solid rgba(255,255,255,.85);box-shadow:0 2px 10px rgba(0,0,0,.5);');
+  hud.map = el('canvas', null, hud.mapWrap, 'width:190px;height:190px;');
+  hud.map.width = 190;
+  hud.map.height = 190;
+  hud.crosshair = el('div', null, root, 'position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 4px #000;pointer-events:none;');
+  // Screens.
+  hud.title = el('div', 'screen-title', root, 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(rgba(10,30,60,.55),rgba(10,30,60,.75));color:#fff;text-align:center;');
+  hud.title.innerHTML = '<div style="font-size:64px;font-weight:900;letter-spacing:6px;text-shadow:0 4px 18px #000;">SOLMAR BAY</div>'
+    + '<div style="font-size:20px;margin-top:6px;">Rico Vega is home — and the city owes him.</div>'
+    + '<div style="font-size:17px;margin-top:22px;line-height:1.7;">WASD move &nbsp;·&nbsp; Mouse look &nbsp;·&nbsp; E steal / exit car<br>Click shoot &nbsp;·&nbsp; Q switch weapon &nbsp;·&nbsp; R reload &nbsp;·&nbsp; P pause</div>'
+    + '<div id="title-continue" style="font-size:24px;font-weight:800;margin-top:30px;color:#ffd23f;">Press ENTER to start</div>';
+  hud.pause = el('div', 'screen-pause', root, 'position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.6);color:#fff;');
+  hud.pause.innerHTML = '<div style="font-size:48px;font-weight:900;">PAUSED</div><div style="font-size:18px;margin-top:10px;">Press P or ENTER to resume</div>';
+  hud.busted = el('div', 'screen-busted', root, 'position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(20,40,90,.72);color:#fff;');
+  hud.busted.innerHTML = '<div style="font-size:56px;font-weight:900;letter-spacing:4px;">BUSTED</div><div id="busted-fine" style="font-size:20px;margin-top:12px;"></div><div style="font-size:20px;margin-top:26px;color:#ffd23f;">Press ENTER to get back out there</div>';
+  hud.wasted = el('div', 'screen-wasted', root, 'position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(90,10,10,.72);color:#fff;');
+  hud.wasted.innerHTML = '<div style="font-size:56px;font-weight:900;letter-spacing:4px;">WASTED</div><div id="wasted-fine" style="font-size:20px;margin-top:12px;"></div><div style="font-size:20px;margin-top:26px;color:#ffd23f;">Press ENTER to get back out there</div>';
+  W.hud = hud;
+  return hud;
+}
 
-export class Hud {
-  constructor() {
-    this.root = document.createElement('div');
-    this.root.id = 'hud';
-    document.body.appendChild(this.root);
-    this.build();
-    this.messageTimer = null;
-    this.mapBg = this.renderMapBackground();
+export function showScreen(W, name) {
+  const h = W.hud;
+  h.title.style.display = name === 'title' ? 'flex' : 'none';
+  h.pause.style.display = name === 'paused' ? 'flex' : 'none';
+  h.busted.style.display = name === 'busted' ? 'flex' : 'none';
+  h.wasted.style.display = name === 'wasted' ? 'flex' : 'none';
+  if (name === 'busted') {
+    document.getElementById('busted-fine').textContent = `The cops took $${W.lastFine || 0} off you.`;
   }
-
-  el(tag, cls, parent) {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (parent) parent.appendChild(e);
-    return e;
+  if (name === 'wasted') {
+    document.getElementById('wasted-fine').textContent = 'The hospital patched you up — $100.';
   }
+  const inGame = name === 'playing';
+  h.crosshair.style.display = inGame ? 'block' : 'none';
+}
 
-  build() {
-    const css = document.createElement('style');
-    css.textContent = `
-      #hud { position: fixed; inset: 0; pointer-events: none; font-family: Arial, sans-serif; color: #fff; z-index: 10; }
-      .hud-panel { position: absolute; background: rgba(10,16,28,0.62); border-radius: 10px; padding: 8px 12px; }
-      #hud-money { top: 14px; right: 14px; font-size: 26px; font-weight: bold; color: #7dff8a; text-shadow: 0 2px 4px #000; }
-      #hud-wanted { top: 58px; right: 14px; font-size: 26px; letter-spacing: 4px; color: #ffd76e; text-shadow: 0 2px 4px #000; }
-      #hud-health { top: 14px; left: 14px; width: 210px; }
-      #hud-health .bar { height: 12px; background: rgba(255,255,255,0.25); border-radius: 6px; overflow: hidden; margin-top: 4px; }
-      #hud-health .fill { height: 100%; background: #58d858; width: 100%; }
-      #hud-health .label { font-size: 13px; letter-spacing: 1px; }
-      #hud-weapon { bottom: 14px; right: 14px; font-size: 20px; text-align: right; }
-      #hud-speed { bottom: 14px; left: 14px; font-size: 30px; font-weight: bold; text-shadow: 0 2px 4px #000; }
-      #hud-objective { top: 14px; left: 50%; transform: translateX(-50%); max-width: 560px; text-align: center; font-size: 15px; }
-      #hud-objective .dist { color: #ffd76e; font-weight: bold; }
-      #hud-message { top: 110px; left: 50%; transform: translateX(-50%); font-size: 22px; font-weight: bold; color: #ffd76e; text-shadow: 0 2px 6px #000; }
-      #hud-crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
-      #hud-crosshair::before, #hud-crosshair::after { content: ''; position: absolute; background: #fff; }
-      #hud-crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
-      #hud-crosshair::after { top: 10px; left: 0; width: 22px; height: 2px; }
-      #hud-map { position: absolute; right: 14px; bottom: 64px; width: 168px; height: 168px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.75); box-shadow: 0 2px 10px #000; }
-      .hud-screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(6,10,20,0.72); pointer-events: auto; text-align: center; }
-      .hud-screen h1 { font-size: 64px; margin: 0; color: #ffd76e; letter-spacing: 6px; text-shadow: 0 4px 18px #000; }
-      .hud-screen h2 { font-size: 44px; margin: 0; }
-      .hud-screen p { font-size: 18px; max-width: 640px; line-height: 1.5; }
-      .hud-screen .keys { font-size: 15px; color: #cfe3ff; }
-      .hud-screen button { margin-top: 18px; font-size: 20px; padding: 12px 28px; border: none; border-radius: 10px; background: #ffd76e; color: #222; font-weight: bold; cursor: pointer; }
-    `;
-    document.head.appendChild(css);
-
-    this.moneyEl = this.el('div', 'hud-panel', this.root);
-    this.moneyEl.id = 'hud-money';
-    this.wantedEl = this.el('div', 'hud-panel', this.root);
-    this.wantedEl.id = 'hud-wanted';
-    const health = this.el('div', 'hud-panel', this.root);
-    health.id = 'hud-health';
-    this.el('span', 'label', health).textContent = 'HEALTH';
-    const bar = this.el('div', 'bar', health);
-    this.healthFill = this.el('div', 'fill', bar);
-    this.weaponEl = this.el('div', 'hud-panel', this.root);
-    this.weaponEl.id = 'hud-weapon';
-    this.speedEl = this.el('div', 'hud-panel', this.root);
-    this.speedEl.id = 'hud-speed';
-    this.objectiveEl = this.el('div', 'hud-panel', this.root);
-    this.objectiveEl.id = 'hud-objective';
-    this.messageEl = this.el('div', '', this.root);
-    this.messageEl.id = 'hud-message';
-    this.crosshair = this.el('div', '', this.root);
-    this.crosshair.id = 'hud-crosshair';
-    this.mapCanvas = this.el('canvas', '', this.root);
-    this.mapCanvas.id = 'hud-map';
-    this.mapCanvas.width = 168;
-    this.mapCanvas.height = 168;
-    this.mapCtx = this.mapCanvas.getContext('2d');
-
-    this.titleScreen = this.buildScreen('title');
-    this.titleScreen.querySelector('h1').textContent = 'SOLMAR BAY';
-    this.titleScreen.querySelector('p').textContent =
-      'Rico Vega is home after three years away. The city is yours: drive it, steal it, ' +
-      'work the five story missions and climb the underworld — just watch the stars.';
-    const keys = this.el('p', 'keys', this.titleScreen);
-    keys.textContent = 'WASD move / drive  •  E get in & out of cars  •  Mouse aim, Click shoot  •  Q switch weapon  •  R reload  •  P pause  •  Enter start';
-    this.titleButton = this.el('button', '', this.titleScreen);
-    this.titleButton.textContent = 'START  (Enter)';
-
-    this.pauseScreen = this.buildScreen('pause');
-    this.pauseScreen.querySelector('h2').textContent = 'PAUSED';
-    this.pauseScreen.querySelector('p').textContent = 'Take a breath, Rico. The city waits.';
-    this.pauseButton = this.el('button', '', this.pauseScreen);
-    this.pauseButton.textContent = 'RESUME  (Enter)';
-
-    this.endScreen = this.buildScreen('end');
-    this.endTitle = this.endScreen.querySelector('h2');
-    this.endText = this.endScreen.querySelector('p');
-    this.endButton = this.el('button', '', this.endScreen);
-    this.endButton.textContent = 'RESPAWN  (Enter)';
-
-    this.hideScreens();
+function drawMinimap(W) {
+  const c = W.hud.map.getContext('2d');
+  const S = 190;
+  const scale = S / 460; // world -230..230 maps to the disc
+  const toMap = (x, z) => [S / 2 + x * scale, S / 2 + z * scale];
+  c.clearRect(0, 0, S, S);
+  // Ocean + beach on the east edge.
+  c.fillStyle = '#1d4e6e';
+  c.fillRect(0, 0, S, S);
+  c.fillStyle = '#e0c98f';
+  const [bx] = toMap(162, 0);
+  c.fillRect(bx, 0, S - bx, S);
+  // City ground.
+  c.fillStyle = '#5a6b52';
+  const [cx0, cz0] = toMap(-162, -162);
+  const [cx1, cz1] = toMap(162, 162);
+  c.fillRect(cx0, cz0, cx1 - cx0, cz1 - cz0);
+  // Park.
+  c.fillStyle = '#3f7d33';
+  const [px0, pz0] = toMap(6, 6);
+  const [px1, pz1] = toMap(66, 66);
+  c.fillRect(px0, pz0, px1 - px0, pz1 - pz0);
+  // Roads.
+  c.strokeStyle = '#333a42';
+  c.lineWidth = 4;
+  for (let m = -4; m <= 4; m++) {
+    const [x0, y0] = toMap(m * PITCH, -162);
+    const [x1, y1] = toMap(m * PITCH, 162);
+    c.beginPath();
+    c.moveTo(x0, y0);
+    c.lineTo(x1, y1);
+    c.stroke();
+    const [hx0, hy0] = toMap(-162, m * PITCH);
+    const [hx1, hy1] = toMap(162, m * PITCH);
+    c.beginPath();
+    c.moveTo(hx0, hy0);
+    c.lineTo(hx1, hy1);
+    c.stroke();
   }
-
-  buildScreen(name) {
-    const s = this.el('div', 'hud-screen', this.root);
-    s.id = `hud-${name}`;
-    this.el('h1', '', s);
-    this.el('h2', '', s);
-    this.el('p', '', s);
-    return s;
+  const dot = (x, z, color, r) => {
+    const [mx, my] = toMap(x, z);
+    c.fillStyle = color;
+    c.beginPath();
+    c.arc(mx, my, r, 0, Math.PI * 2);
+    c.fill();
+  };
+  for (const car of W.traffic) dot(car.pos.x, car.pos.z, '#bbbbbb', 2);
+  for (const car of W.parked) dot(car.pos.x, car.pos.z, '#ffffff', 2);
+  for (const e of W.enemies) dot(e.pos.x, e.pos.z, '#ff3333', 3);
+  for (const u of W.police) dot(u.pos.x, u.pos.z, '#3388ff', 3);
+  // Mission marker: pulsing yellow diamond.
+  const obj = objectiveText(W);
+  if (W.missions.active) {
+    const [mx, my] = toMap(obj.x, obj.z);
+    const r = 5 + Math.sin(W.time * 5) * 2;
+    c.fillStyle = '#ffd23f';
+    c.beginPath();
+    c.moveTo(mx, my - r);
+    c.lineTo(mx + r, my);
+    c.lineTo(mx, my + r);
+    c.lineTo(mx - r, my);
+    c.closePath();
+    c.fill();
   }
+  // Player arrow.
+  const [px, py] = toMap(W.player.pos.x, W.player.pos.z);
+  c.save();
+  c.translate(px, py);
+  c.rotate(Math.atan2(Math.sin(W.player.yaw), Math.cos(W.player.yaw)));
+  c.fillStyle = '#ffffff';
+  c.beginPath();
+  c.moveTo(0, -7);
+  c.lineTo(5, 6);
+  c.lineTo(-5, 6);
+  c.closePath();
+  c.fill();
+  c.restore();
+}
 
-  hideScreens() {
-    this.titleScreen.style.display = 'none';
-    this.pauseScreen.style.display = 'none';
-    this.endScreen.style.display = 'none';
+export function updateHud(W) {
+  const h = W.hud;
+  h.money.textContent = `$${Math.floor(W.money).toLocaleString('en-US')}`;
+  let stars = '';
+  for (let i = 0; i < 5; i++) stars += i < W.wanted ? '★' : '☆';
+  h.stars.textContent = stars;
+  const hp = Math.max(0, Math.round(W.player.health));
+  h.healthLabel.textContent = `HEALTH ${hp}`;
+  h.healthFill.style.width = `${hp}%`;
+  h.healthFill.style.background = hp > 50 ? '#2ecc71' : hp > 25 ? '#f39c12' : '#e74c3c';
+  const w = W.weapons[W.weapon];
+  const reloading = W.reloadAt > 0;
+  h.weapon.textContent = reloading ? `${w.name} — reloading…` : `${w.name}  ${w.mag} / ∞`;
+  const obj = objectiveText(W);
+  h.objective.textContent = W.missions.active
+    ? `${obj.text} — ${Math.round(obj.dist)}m`
+    : obj.text;
+  const speed = W.player.inCar ? Math.abs(W.player.carSpeed) * 2.237 : Math.abs(W.player.speed) * 2.237;
+  h.speed.textContent = W.player.inCar ? `${Math.round(speed)} mph` : '';
+  // Flash messages (SMG unlock, mission complete, locked weapon).
+  let flash = '';
+  const last = W.events[W.events.length - 1];
+  if (W.hudFlash && W.time - W.hudFlashAt < 2.5) flash = W.hudFlash;
+  if (last && last.type === 'mission-complete' && W.time - last.at < 2.5) {
+    flash = `${last.mission} — +$${last.reward}`;
   }
-
-  showTitle(hasSave) {
-    this.hideScreens();
-    this.titleScreen.style.display = 'flex';
-    this.titleButton.textContent = hasSave ? 'CONTINUE  (Enter)' : 'START  (Enter)';
+  if (last && last.type === 'smg-unlocked' && W.time - last.at < 3) {
+    flash = 'SMG UNLOCKED — press Q';
   }
-
-  showPause() {
-    this.hideScreens();
-    this.pauseScreen.style.display = 'flex';
+  if (last && last.type === 'story-complete' && W.time - last.at < 4) {
+    flash = 'YOU OWN SOLMAR BAY';
   }
-
-  showEnd(kind, fine) {
-    this.hideScreens();
-    this.endScreen.style.display = 'flex';
-    if (kind === 'busted') {
-      this.endTitle.textContent = 'BUSTED!';
-      this.endText.textContent = `The Solmar Bay police took you in. You paid a $${fine} fine and lost the heat — for now.`;
-    } else {
-      this.endTitle.textContent = 'WASTED';
-      this.endText.textContent = `Rico went down in the streets of Solmar Bay. The hospital patched you up for $${fine}.`;
-    }
-  }
-
-  setMessage(text) {
-    this.messageEl.textContent = text;
-    if (this.messageTimer) window.clearTimeout(this.messageTimer);
-    this.messageTimer = window.setTimeout(() => {
-      this.messageEl.textContent = '';
-    }, 4000);
-  }
-
-  renderMapBackground() {
-    const c = document.createElement('canvas');
-    c.width = 168;
-    c.height = 168;
-    const g = c.getContext('2d');
-    g.fillStyle = '#2d5a2d';
-    g.fillRect(0, 0, 168, 168);
-    g.fillStyle = '#3a3a40';
-    for (const line of ROAD_LINES) {
-      const p = ((line + 210) / 420) * 168;
-      g.fillRect(p - 2, 0, 4, 168);
-      g.fillRect(0, p - 2, 168, 4);
-    }
-    g.fillStyle = '#e8d29a';
-    g.fillRect(0, ((188 + 210) / 420) * 168, 168, 10);
-    g.fillStyle = '#1b6fb0';
-    g.fillRect(0, ((228 + 210) / 420) * 168, 168, 168 - ((228 + 210) / 420) * 168);
-    g.fillStyle = '#4d7d3a';
-    g.beginPath();
-    g.arc((( -66 + 210) / 420) * 168, ((-66 + 210) / 420) * 168, 8, 0, Math.PI * 2);
-    g.fill();
-    return c;
-  }
-
-  drawMinimap(state) {
-    const g = this.mapCtx;
-    const S = 168;
-    g.clearRect(0, 0, S, S);
-    g.save();
-    g.beginPath();
-    g.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2);
-    g.clip();
-    g.drawImage(this.mapBg, 0, 0);
-    const toMap = (x, z) => [((x + 210) / 420) * S, ((z + 210) / 420) * S];
-    const dot = (x, z, color, r) => {
-      const [mx, mz] = toMap(x, z);
-      g.fillStyle = color;
-      g.beginPath();
-      g.arc(mx, mz, r, 0, Math.PI * 2);
-      g.fill();
-    };
-    if (state.objectivePos) dot(state.objectivePos.x, state.objectivePos.z, '#ffd76e', 5);
-    for (const c of state.cars) dot(c.x, c.z, '#ffffff', 2.5);
-    for (const p of state.police) dot(p.x, p.z, '#3a86ff', 3.5);
-    for (const e of state.enemies) dot(e.x, e.z, '#ff4444', 3);
-    const [px, pz] = toMap(state.player.x, state.player.z);
-    g.fillStyle = '#7dff8a';
-    g.beginPath();
-    g.arc(px, pz, 5, 0, Math.PI * 2);
-    g.fill();
-    g.strokeStyle = '#ffffff';
-    g.lineWidth = 2;
-    g.stroke();
-    // North tick.
-    g.fillStyle = '#ffffff';
-    g.font = 'bold 11px Arial';
-    g.textAlign = 'center';
-    g.fillText('N', S / 2, 12);
-    g.restore();
-  }
-
-  update(state) {
-    this.moneyEl.textContent = `$${Math.floor(state.money)}`;
-    let stars = '';
-    for (let i = 0; i < 5; i++) stars += i < state.wanted ? STAR_ON : STAR_OFF;
-    this.wantedEl.textContent = stars;
-    this.wantedEl.style.color = state.wanted >= 4 ? '#ff5555' : '#ffd76e';
-    this.healthFill.style.width = `${Math.max(0, Math.min(100, state.health))}%`;
-    this.healthFill.style.background = state.health > 50 ? '#58d858' : state.health > 25 ? '#f2d13c' : '#ff5555';
-    this.weaponEl.textContent = `${state.weaponName}  ${state.ammo}`;
-    this.speedEl.textContent = state.inCar ? `${Math.round(state.speed * 2.2)} mph` : '';
-    this.objectiveEl.innerHTML = `${state.objective} <span class="dist">${state.distance} m</span>`;
-    this.crosshair.style.display = state.playing && !state.inCar ? 'block' : 'none';
-    this.drawMinimap(state);
-  }
+  h.flash.textContent = flash;
+  drawMinimap(W);
 }
