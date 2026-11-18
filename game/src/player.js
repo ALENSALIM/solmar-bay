@@ -1,168 +1,211 @@
-// Rico Vega on foot and behind the wheel. On foot: WASD moves relative to
-// the camera yaw, Shift runs. In a car: W/S throttle and brake, A/D steer,
-// the car is simple arcade physics with building collision.
+// Rico Vega on foot and behind the wheel: third-person movement, car
+// stealing and arcade driving, with building collision and health.
 import * as THREE from 'three';
-import { makeFigure } from './people.js';
-import { isDown, wasPressed } from './input.js';
-import { collideCircle, clampBounds } from './city.js';
-import { playHorn } from './audio.js';
-import { addWanted } from './combat.js';
+import { pushOutOfColliders } from './city.js';
 
-export function makePlayer(W) {
-  const mesh = makeFigure(0xe67e22, 0xc68642);
-  mesh.position.set(170, 0, 0);
-  W.scene.add(mesh);
-  const player = {
-    mesh,
-    pos: mesh.position,
-    yaw: -Math.PI / 2,
-    health: 100,
-    maxHealth: 100,
-    speed: 0,
-    inCar: null,
-    carSpeed: 0,
-    steer: 0,
-    lastDamageAt: -99,
-    walkPhase: 0,
-  };
-  W.player = player;
-  return player;
+function makeRico() {
+  const group = new THREE.Group();
+  const shirt = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
+  const jeans = new THREE.MeshLambertMaterial({ color: 0x2e4a6e });
+  const skin = new THREE.MeshLambertMaterial({ color: 0xc98a5a });
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.78, 0.34), shirt);
+  torso.position.y = 1.06;
+  group.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 10, 8), skin);
+  head.position.y = 1.64;
+  group.add(head);
+  const cap = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.12, 0.5),
+    new THREE.MeshLambertMaterial({ color: 0xd23c2e })
+  );
+  cap.position.y = 1.82;
+  group.add(cap);
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.72, 0.24), jeans);
+  legL.position.set(0.15, 0.36, 0);
+  const legR = legL.clone();
+  legR.position.x = -0.15;
+  group.add(legL); group.add(legR);
+  group.userData.legL = legL;
+  group.userData.legR = legR;
+  return group;
 }
 
-function nearestCar(W, cars, maxDist) {
-  let best = null;
-  let bestD = maxDist;
-  for (const c of cars) {
-    if (c.driven) continue;
-    const d = Math.hypot(c.pos.x - W.player.pos.x, c.pos.z - W.player.pos.z);
-    if (d < bestD) {
-      bestD = d;
-      best = c;
+export class Player {
+  constructor(scene, rng, city, input, traffic, audio, hooks) {
+    this.scene = scene;
+    this.rng = rng;
+    this.city = city;
+    this.input = input;
+    this.traffic = traffic;
+    this.audio = audio;
+    this.hooks = hooks || {};
+    this.group = makeRico();
+    scene.add(this.group);
+    this.pos = this.group.position;
+    this.pos.set(city.spawnPos.x, 0, city.spawnPos.z);
+    this.yaw = 0;
+    this.camYaw = Math.PI;
+    this.camPitch = 0.32;
+    this.health = 100;
+    this.maxHealth = 100;
+    this.inCar = null;
+    this.carSpeed = 0;
+    this.walkPhase = 0;
+    this.steer = 0;
+  }
+
+  resetToHome() {
+    this.pos.set(this.city.spawnPos.x, 0, this.city.spawnPos.z);
+    this.yaw = 0;
+    this.camYaw = Math.PI;
+    this.health = this.maxHealth;
+    if (this.inCar) {
+      this.inCar.isPlayer = false;
+      this.inCar.speed = 0;
+      this.inCar = null;
+      this.group.visible = true;
     }
   }
-  return best;
-}
 
-export function updatePlayer(W, dt) {
-  const p = W.player;
-  const input = W.input;
-  if (p.inCar) {
-    updateDriving(W, dt);
-    return;
+  damage(amount) {
+    if (this.health <= 0) return;
+    this.health = Math.max(0, this.health - amount);
+    if (this.health <= 0 && this.hooks.onDied) this.hooks.onDied();
   }
-  // Camera-relative movement.
-  const fwd = (isDown(input, 'KeyW') || isDown(input, 'ArrowUp') ? 1 : 0)
-    - (isDown(input, 'KeyS') || isDown(input, 'ArrowDown') ? 1 : 0);
-  const strafe = (isDown(input, 'KeyD') || isDown(input, 'ArrowRight') ? 1 : 0)
-    - (isDown(input, 'KeyA') || isDown(input, 'ArrowLeft') ? 1 : 0);
-  const run = isDown(input, 'ShiftLeft') || isDown(input, 'ShiftRight');
-  const speed = run ? 9 : 6;
-  const cy = W.camYaw;
-  let mx = 0;
-  let mz = 0;
-  if (fwd !== 0 || strafe !== 0) {
-    mx = -Math.sin(cy) * fwd + Math.cos(cy) * strafe;
-    mz = -Math.cos(cy) * fwd - Math.sin(cy) * strafe;
-    const len = Math.hypot(mx, mz);
-    mx /= len;
-    mz /= len;
-    p.speed = speed;
-    p.yaw = Math.atan2(mx, mz);
-  } else {
-    p.speed = 0;
-  }
-  let nx = p.pos.x + mx * p.speed * dt;
-  let nz = p.pos.z + mz * p.speed * dt;
-  const col = collideCircle(W, nx, nz, 0.55);
-  nx = col.px;
-  nz = col.pz;
-  const cl = clampBounds(nx, nz);
-  p.pos.x = cl.x;
-  p.pos.z = cl.z;
-  p.mesh.rotation.y = p.yaw;
-  p.walkPhase += dt * (p.speed > 0 ? 9 : 0);
-  p.mesh.position.y = Math.abs(Math.sin(p.walkPhase)) * 0.05;
-  const [l, r] = p.mesh.userData.legs;
-  const swing = p.speed > 0 ? 0.55 : 0;
-  l.rotation.x = Math.sin(p.walkPhase) * swing;
-  r.rotation.x = -Math.sin(p.walkPhase) * swing;
-  // Health regen after 10 s without damage.
-  if (W.time - p.lastDamageAt > 10 && p.health < p.maxHealth) {
-    p.health = Math.min(p.maxHealth, p.health + 4 * dt);
-  }
-  // Enter / exit a car.
-  if (wasPressed(input, 'KeyE')) {
-    const car = nearestCar(W, [...W.parked, ...W.traffic], 3.4);
-    if (car) enterCar(W, car);
-  }
-  if (wasPressed(input, 'KeyH')) playHorn(W.audio);
-}
 
-function enterCar(W, car) {
-  const p = W.player;
-  // Jacking a moving traffic car (one that was never parked) is a crime.
-  if (!car.wasParked) {
-    addWanted(W, 1);
-    W.events.push({ type: 'jacked', at: W.time });
+  regen(dt) {
+    if (this.health > 0 && this.health < this.maxHealth) {
+      this.health = Math.min(this.maxHealth, this.health + 3 * dt);
+    }
   }
-  p.inCar = car;
-  car.driven = true;
-  car.parked = false;
-  p.mesh.visible = false;
-  p.carSpeed = 0;
-  W.events.push({ type: 'enter-car', at: W.time });
-}
 
-export function exitCar(W) {
-  const p = W.player;
-  const car = p.inCar;
-  if (!car) return;
-  p.inCar = null;
-  car.driven = false;
-  if (car.wasParked) car.parked = true;
-  p.carSpeed = 0;
-  // Step out to the side of the car.
-  const side = Math.cos(car.mesh.rotation.y);
-  const sideZ = -Math.sin(car.mesh.rotation.y);
-  p.pos.set(car.pos.x + side * 2.2, 0, car.pos.z + sideZ * 2.2);
-  p.mesh.visible = true;
-  p.mesh.position.copy(p.pos);
-}
-
-function updateDriving(W, dt) {
-  const p = W.player;
-  const car = p.inCar;
-  const input = W.input;
-  const throttle = (isDown(input, 'KeyW') || isDown(input, 'ArrowUp') ? 1 : 0)
-    - (isDown(input, 'KeyS') || isDown(input, 'ArrowDown') ? 1 : 0);
-  const steerIn = (isDown(input, 'KeyA') || isDown(input, 'ArrowLeft') ? 1 : 0)
-    - (isDown(input, 'KeyD') || isDown(input, 'ArrowRight') ? 1 : 0);
-  const maxSpeed = 30;
-  const accel = 16;
-  if (throttle > 0) p.carSpeed = Math.min(maxSpeed, p.carSpeed + accel * dt);
-  else if (throttle < 0) p.carSpeed = Math.max(-9, p.carSpeed - accel * 0.9 * dt);
-  else p.carSpeed -= Math.sign(p.carSpeed) * Math.min(Math.abs(p.carSpeed), 10 * dt);
-  // Steering scales with speed and flips in reverse.
-  const steerTarget = steerIn * 1.9 * Math.min(1, Math.abs(p.carSpeed) / 8);
-  p.steer += (steerTarget - p.steer) * Math.min(1, dt * 8);
-  car.mesh.rotation.y += p.steer * Math.sign(p.carSpeed) * dt * 0.9;
-  const yaw = car.mesh.rotation.y;
-  const nx = car.pos.x + Math.sin(yaw) * p.carSpeed * dt;
-  const nz = car.pos.z + Math.cos(yaw) * p.carSpeed * dt;
-  const col = collideCircle(W, nx, nz, 1.9);
-  if (col.hit && Math.abs(p.carSpeed) > 6) {
-    p.carSpeed *= 0.4;
-    W.events.push({ type: 'crash', at: W.time });
+  tryEnterCar() {
+    if (this.inCar) return null;
+    const car = this.traffic.nearestCar(this.pos, 4.5, false);
+    if (!car) return null;
+    const jacked = !car.isParked;
+    car.isPlayer = true;
+    car.isParked = false;
+    car.speed = 0;
+    this.inCar = car;
+    this.carSpeed = 0;
+    this.group.visible = false;
+    if (jacked && this.hooks.onJacked) this.hooks.onJacked(car);
+    return car;
   }
-  const cl = clampBounds(col.px, col.pz);
-  car.pos.x = cl.x;
-  car.pos.z = cl.z;
-  // Wheels spin with speed.
-  for (const w of car.mesh.userData.wheels) w.rotation.x += (p.carSpeed * dt) / 0.36;
-  // Player follows the car.
-  p.pos.copy(car.pos);
-  p.mesh.position.copy(car.pos);
-  // Exit the car.
-  if (wasPressed(input, 'KeyE')) exitCar(W);
-  if (wasPressed(input, 'KeyH')) playHorn(W.audio);
+
+  exitCar() {
+    if (!this.inCar) return;
+    const car = this.inCar;
+    car.isPlayer = false;
+    car.speed = 0;
+    this.inCar = null;
+    this.carSpeed = 0;
+    // Step out on the driver's side.
+    const side = car.heading + Math.PI / 2;
+    this.pos.set(
+      car.pos.x + Math.cos(side) * 2.4,
+      0,
+      car.pos.z - Math.sin(side) * 2.4
+    );
+    pushOutOfColliders(this.pos, 0.6, this.city.colliders);
+    this.group.visible = true;
+    this.yaw = car.heading;
+    this.camYaw = car.heading + Math.PI;
+  }
+
+  update(dt, playing) {
+    if (!playing) return;
+    if (this.inCar) this.updateDriving(dt);
+    else this.updateOnFoot(dt);
+  }
+
+  updateOnFoot(dt) {
+    const look = this.input.consumeLook();
+    this.camYaw += look.dx * 0.0032;
+    this.camPitch = Math.max(-0.15, Math.min(0.85, this.camPitch + look.dy * 0.0028));
+    let mx = 0;
+    let mz = 0;
+    if (this.input.down('KeyW') || this.input.down('ArrowUp')) mz += 1;
+    if (this.input.down('KeyS') || this.input.down('ArrowDown')) mz -= 1;
+    if (this.input.down('KeyA') || this.input.down('ArrowLeft')) mx -= 1;
+    if (this.input.down('KeyD') || this.input.down('ArrowRight')) mx += 1;
+    const moving = mx !== 0 || mz !== 0;
+    if (moving) {
+      const len = Math.hypot(mx, mz);
+      mx /= len; mz /= len;
+      const sprint = this.input.down('ShiftLeft') || this.input.down('ShiftRight');
+      const speed = sprint ? 12 : 8;
+      // Camera-relative movement: forward is away from the camera.
+      const sin = Math.sin(this.camYaw);
+      const cos = Math.cos(this.camYaw);
+      const wx = (mx * cos - mz * sin) * -1;
+      const wz = (mx * sin + mz * cos) * -1;
+      this.pos.x += wx * speed * dt;
+      this.pos.z += wz * speed * dt;
+      const targetYaw = Math.atan2(wx, wz);
+      let dy = targetYaw - this.yaw;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      this.yaw += dy * Math.min(1, dt * 12);
+      this.walkPhase += dt * (sprint ? 13 : 10);
+      const swing = Math.sin(this.walkPhase) * 0.55;
+      this.group.userData.legL.rotation.x = swing;
+      this.group.userData.legR.rotation.x = -swing;
+    } else {
+      this.group.userData.legL.rotation.x = 0;
+      this.group.userData.legR.rotation.x = 0;
+    }
+    this.group.rotation.y = this.yaw;
+    pushOutOfColliders(this.pos, 0.6, this.city.colliders);
+    this.pos.x = Math.max(-222, Math.min(284, this.pos.x));
+    this.pos.z = Math.max(-222, Math.min(222, this.pos.z));
+  }
+
+  updateDriving(dt) {
+    const car = this.inCar;
+    const fwd = this.input.down('KeyW') || this.input.down('ArrowUp');
+    const back = this.input.down('KeyS') || this.input.down('ArrowDown');
+    const left = this.input.down('KeyA') || this.input.down('ArrowLeft');
+    const right = this.input.down('KeyD') || this.input.down('ArrowRight');
+    const maxSpeed = 42;
+    if (fwd) this.carSpeed += 16 * dt;
+    else if (back) this.carSpeed -= this.carSpeed > 0.5 ? 24 * dt : 8 * dt;
+    else this.carSpeed -= this.carSpeed * 0.9 * dt;
+    if (this.carSpeed > maxSpeed) this.carSpeed = maxSpeed;
+    if (this.carSpeed < -10) this.carSpeed = -10;
+    if (Math.abs(this.carSpeed) < 0.05 && !fwd && !back) this.carSpeed = 0;
+    const steerInput = (left ? 1 : 0) - (right ? 1 : 0);
+    const steerFactor = Math.min(1, Math.abs(this.carSpeed) / 9);
+    this.steer += (steerInput - this.steer) * Math.min(1, dt * 8);
+    car.heading += this.steer * 1.9 * steerFactor * dt * Math.sign(this.carSpeed || 1);
+    car.pos.x += Math.cos(car.heading) * this.carSpeed * dt;
+    car.pos.z += -Math.sin(car.heading) * this.carSpeed * dt;
+    // Building collision: stop and slide out.
+    const beforeX = car.pos.x;
+    const beforeZ = car.pos.z;
+    pushOutOfColliders(car.pos, 1.7, this.city.colliders);
+    if (car.pos.x !== beforeX || car.pos.z !== beforeZ) this.carSpeed *= 0.4;
+    // Other cars: soft push apart.
+    for (const other of this.traffic.cars) {
+      if (other === car || other.isPlayer) continue;
+      const dx = car.pos.x - other.pos.x;
+      const dz = car.pos.z - other.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 3.8 && d > 0.01) {
+        car.pos.x = other.pos.x + (dx / d) * 3.8;
+        car.pos.z = other.pos.z + (dz / d) * 3.8;
+        this.carSpeed *= 0.6;
+      }
+    }
+    car.pos.x = Math.max(-222, Math.min(284, car.pos.x));
+    car.pos.z = Math.max(-222, Math.min(222, car.pos.z));
+    car.speed = this.carSpeed;
+    car.group.rotation.y = car.heading;
+    // Lean the body a little into corners.
+    car.group.rotation.z = -this.steer * Math.min(1, Math.abs(this.carSpeed) / 20) * 0.06;
+    this.audio.setEngine(Math.abs(this.carSpeed) / maxSpeed);
+    this.camYaw = car.heading + Math.PI;
+    this.camPitch = 0.24;
+  }
 }
