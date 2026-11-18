@@ -1,73 +1,30 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solmar Bay — Open World</title>
+<title>Solmar Bay — Open World Crime Game</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1020; font-family: "Trebuchet MS", "Segoe UI", Verdana, sans-serif; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; display: none; }
-  #hud.on { display: block; }
-  .panel { position: absolute; background: rgba(8, 12, 24, 0.55); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 10px; padding: 8px 12px; backdrop-filter: blur(2px); }
-  #stats { top: 12px; right: 12px; text-align: right; min-width: 210px; }
-  #money { font-size: 26px; font-weight: 800; color: #7dff9a; text-shadow: 0 2px 4px rgba(0,0,0,.7); }
-  #stars { font-size: 22px; letter-spacing: 2px; color: #ffd23e; text-shadow: 0 2px 4px rgba(0,0,0,.8); min-height: 26px; }
-  #healthbar { width: 190px; height: 12px; background: rgba(0,0,0,.55); border-radius: 6px; margin-top: 4px; overflow: hidden; }
-  #healthfill { height: 100%; width: 100%; background: linear-gradient(90deg, #ff5d5d, #ff9a3d); transition: width .15s; }
-  #weapon { bottom: 14px; left: 14px; font-size: 18px; font-weight: 700; }
-  #weapon small { display: block; font-size: 12px; color: #ffd23e; font-weight: 400; }
-  #speed { bottom: 14px; right: 230px; font-size: 30px; font-weight: 800; text-align: right; }
-  #speed small { display: block; font-size: 11px; color: #cfe6ff; font-weight: 400; }
-  #objective { top: 12px; left: 50%; transform: translateX(-50%); text-align: center; max-width: 560px; }
-  #objective .tag { font-size: 11px; letter-spacing: 3px; color: #ffd23e; font-weight: 700; }
-  #objective .text { font-size: 17px; font-weight: 700; text-shadow: 0 2px 4px rgba(0,0,0,.8); }
-  #objective .dist { font-size: 13px; color: #cfe6ff; }
-  #minimapWrap { position: absolute; right: 12px; bottom: 12px; border: 2px solid rgba(255,255,255,.35); border-radius: 50%; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.6); background: #0d1a2e; }
-  #minimap { display: block; width: 200px; height: 200px; }
-  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; display: none; }
-  #crosshair:before, #crosshair:after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 3px #000; }
-  #crosshair:before { left: 10px; top: 0; width: 2px; height: 22px; }
-  #crosshair:after { left: 0; top: 10px; width: 22px; height: 2px; }
-  #toast { top: 96px; left: 50%; transform: translateX(-50%); font-size: 20px; font-weight: 800; color: #ffd23e; text-shadow: 0 2px 6px rgba(0,0,0,.9); text-align: center; opacity: 0; transition: opacity .3s; white-space: nowrap; }
-  #toast.show { opacity: 1; }
-  #hint { bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #dfeaff; text-shadow: 0 1px 3px rgba(0,0,0,.9); white-space: nowrap; }
-  #vignette { position: fixed; inset: 0; pointer-events: none; display: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(255,0,0,.45) 100%); }
-  #screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; color: #fff; text-align: center; background: linear-gradient(180deg, rgba(10,16,40,.25) 0%, rgba(10,16,40,.72) 78%); z-index: 5; }
-  #screen h1 { font-size: 84px; margin: 0; letter-spacing: 6px; font-weight: 900; color: #ffd23e; text-shadow: 0 4px 0 #c2430f, 0 10px 30px rgba(0,0,0,.8); font-style: italic; }
-  #screen h2 { font-size: 22px; margin: 2px 0 18px; letter-spacing: 8px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.9); }
-  #screen .story { max-width: 620px; font-size: 16px; line-height: 1.5; color: #eaf2ff; text-shadow: 0 2px 6px rgba(0,0,0,.9); margin: 0 0 22px; }
-  #screen .cta { font-size: 22px; font-weight: 800; color: #7dff9a; animation: pulse 1.2s infinite; text-shadow: 0 2px 8px rgba(0,0,0,.9); }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
-  #screen .keys { margin-top: 22px; font-size: 13px; color: #cfe0ff; line-height: 1.9; background: rgba(0,0,0,.35); padding: 10px 22px; border-radius: 10px; }
-  #screen .keys b { color: #ffd23e; }
-  #screen .big { font-size: 64px; font-weight: 900; letter-spacing: 4px; }
-  #screen .sub { font-size: 18px; color: #ffd23e; margin-top: 6px; }
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0a1420; }
+  canvas { display: block; }
 </style>
 <script type="importmap">
-{ "imports": { "three": "./vendor/three.module.min.js" } }
+{
+  "imports": {
+    "three": "./vendor/three.module.min.js"
+  }
+}
 </script>
 </head>
 <body>
-<canvas id="game" aria-label="Solmar Bay: an open-world crime game. Drive, explore the city on foot, take on missions and outrun the police."></canvas>
-<div id="vignette"></div>
-<div id="hud">
-  <div id="stats" class="panel">
-    <div id="money">$0</div>
-    <div id="stars"></div>
-    <div id="healthbar"><div id="healthfill"></div></div>
-  </div>
-  <div id="objective" class="panel"><div class="tag" id="objTag">SOLMAR BAY</div><div class="text" id="objText">Welcome to Solmar Bay</div><div class="dist" id="objDist"></div></div>
-  <div id="weapon" class="panel"><span id="weaponName">Fists</span><small id="weaponAmmo"></small></div>
-  <div id="speed" class="panel"><span id="speedVal">0</span><small>MPH</small></div>
-  <div id="minimapWrap"><canvas id="minimap" width="200" height="200"></canvas></div>
-  <div id="crosshair"></div>
-  <div id="toast"></div>
-  <div id="hint"></div>
-</div>
-<div id="screen"></div>
-<p id="status" role="status" aria-live="polite"></p>
-<script type="module" src="./src/main.js"></script>
+<script>
+  window.__errors = [];
+  window.addEventListener('error', (e) => window.__errors.push(String(e.message || e.error)));
+  window.addEventListener('unhandledrejection', (e) => window.__errors.push('rejection: ' + String(e.reason)));
+</script>
+<script type="module">
+  import { startGame } from './src/main.js';
+  startGame();
+</script>
 </body>
 </html>
