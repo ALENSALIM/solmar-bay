@@ -1,26 +1,135 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Solmar Bay — an open-world crime game</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0a1e3c; }
-  #game { display: block; width: 100vw; height: 100vh; }
-  #hud { position: fixed; inset: 0; pointer-events: none; font-family: "Segoe UI", system-ui, sans-serif; }
-  #hud .screen { pointer-events: auto; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e14;
+    font-family: 'Segoe UI', Arial, sans-serif; color: #fff; }
+  #game, #game canvas { position: fixed; inset: 0; }
+  .hidden { display: none !important; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .panel { background: rgba(8, 12, 20, 0.62); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px; padding: 8px 12px; backdrop-filter: blur(2px); }
+  #top-left { position: absolute; top: 14px; left: 14px; }
+  #money { font-size: 26px; font-weight: 800; color: #7dff9a; letter-spacing: 0.5px; }
+  #stars { font-size: 22px; color: #ffd23c; letter-spacing: 3px; margin-top: 2px; }
+  #stars.hot { color: #ff5340; }
+  #objective-box { position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    text-align: center; max-width: 560px; }
+  #objective-text { font-size: 15px; font-weight: 700; }
+  #objective-dist { font-size: 13px; color: #ffd23c; margin-top: 2px; }
+  #minimap-wrap { position: absolute; top: 14px; right: 14px; }
+  #minimap { width: 180px; height: 180px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.45); background: #10141a; }
+  #bottom-left { position: absolute; left: 14px; bottom: 14px; width: 220px; }
+  #health-label { font-size: 12px; letter-spacing: 1px; color: #cdd6e4; margin-bottom: 4px; }
+  #health-bar { height: 12px; background: rgba(255,255,255,0.16); border-radius: 6px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #37d67a, #7dff9a);
+    border-radius: 6px; transition: width 0.2s; }
+  #health-fill.low { background: linear-gradient(90deg, #d63737, #ff7a5a); }
+  #bottom-right { position: absolute; right: 14px; bottom: 14px; text-align: right; }
+  #weapon-name { font-size: 18px; font-weight: 800; }
+  #ammo { font-size: 15px; color: #ffd23c; }
+  #speed { font-size: 30px; font-weight: 800; margin-top: 4px; }
+  #speed small { font-size: 13px; color: #cdd6e4; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px;
+    transform: translate(-50%, -50%); z-index: 6; pointer-events: none; }
+  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff;
+    box-shadow: 0 0 3px #000; }
+  #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
+  #toast { position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+    background: rgba(8, 12, 20, 0.8); border: 1px solid rgba(255,210,60,0.5); color: #ffd23c;
+    padding: 8px 18px; border-radius: 20px; font-size: 15px; font-weight: 700;
+    opacity: 0; transition: opacity 0.25s; white-space: nowrap; }
+  #toast.show { opacity: 1; }
+  .screen { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: radial-gradient(ellipse at center, rgba(10,18,32,0.25) 0%, rgba(5,8,16,0.78) 100%); }
+  .game-title { font-size: 84px; font-weight: 900; letter-spacing: 6px; color: #fff;
+    text-shadow: 0 0 24px rgba(255, 90, 122, 0.8), 0 4px 0 #123a5c; }
+  .game-sub { font-size: 19px; color: #ffd23c; margin: 6px 0 26px; letter-spacing: 2px; }
+  .btn { pointer-events: auto; cursor: pointer; border: none; border-radius: 10px;
+    padding: 13px 34px; font-size: 18px; font-weight: 800; color: #0a0e14;
+    background: linear-gradient(180deg, #ffd23c, #f5a623); margin: 6px; min-width: 260px; }
+  .btn:hover { filter: brightness(1.1); }
+  .btn.ghost { background: rgba(255,255,255,0.14); color: #fff; border: 1px solid rgba(255,255,255,0.35); }
+  .controls { margin-top: 22px; font-size: 14px; color: #cdd6e4; line-height: 1.9; }
+  .controls b { color: #fff; background: rgba(255,255,255,0.14); border-radius: 4px; padding: 1px 7px; }
+  .big-word { font-size: 72px; font-weight: 900; letter-spacing: 8px; }
+  #screen-busted .big-word { color: #4a90e2; text-shadow: 0 0 24px rgba(74,144,226,0.9); }
+  #screen-wasted .big-word { color: #ff5340; text-shadow: 0 0 24px rgba(255,83,64,0.9); }
+  .fine { font-size: 20px; margin: 10px 0 20px; color: #ffd23c; }
+  .hint { font-size: 14px; color: #cdd6e4; margin-top: 14px; }
 </style>
 <script type="importmap">
-{
-  "imports": {
-    "three": "./vendor/three.module.min.js"
-  }
-}
+{ "imports": { "three": "./vendor/three.module.min.js" } }
 </script>
 </head>
 <body>
-<canvas id="game"></canvas>
-<div id="hud"></div>
+<div id="game"></div>
+
+<div id="hud" class="hidden">
+  <div id="top-left" class="panel">
+    <div id="money">$500</div>
+    <div id="stars">&#9734;&#9734;&#9734;&#9734;&#9734;</div>
+  </div>
+  <div id="objective-box" class="panel">
+    <div id="objective-text">Welcome to Solmar Bay</div>
+    <div id="objective-dist"></div>
+  </div>
+  <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas></div>
+  <div id="bottom-left" class="panel">
+    <div id="health-label">HEALTH <span id="health-num">100</span></div>
+    <div id="health-bar"><div id="health-fill"></div></div>
+  </div>
+  <div id="bottom-right" class="panel">
+    <div id="weapon-name">Pistol</div>
+    <div id="ammo">12 / 12</div>
+    <div id="speed">0 <small>km/h</small></div>
+  </div>
+  <div id="toast"></div>
+</div>
+<div id="crosshair" class="hidden"></div>
+
+<div id="screen-title" class="screen">
+  <div class="game-title">SOLMAR BAY</div>
+  <div class="game-sub">RICO VEGA IS HOME &mdash; AND THE CITY NEVER FORGOT HIM</div>
+  <button id="btn-continue" class="btn hidden">Continue</button>
+  <button id="btn-new" class="btn">New Game</button>
+  <div class="controls">
+    <b>W A S D</b> move &nbsp; <b>Mouse</b> look &amp; aim &nbsp; <b>Click</b> shoot<br>
+    <b>E</b> steal / exit car &nbsp; <b>Q</b> switch weapon &nbsp; <b>R</b> reload<br>
+    <b>Shift</b> sprint &nbsp; <b>P</b> pause &nbsp; <b>M</b> mute &nbsp; <b>Enter</b> start
+  </div>
+  <div class="hint">Best money held: <span id="title-best">$0</span> &nbsp;&middot;&nbsp; 5 story missions &middot; 9&times;9 city &middot; traffic, police, combat</div>
+</div>
+
+<div id="screen-pause" class="screen hidden">
+  <div class="big-word">PAUSED</div>
+  <div class="game-sub">TAKE A BREATHER, RICO</div>
+  <button id="btn-resume" class="btn">Resume</button>
+  <button id="btn-quit" class="btn ghost">Quit to Title</button>
+  <div class="hint">Press P or Enter to resume</div>
+</div>
+
+<div id="screen-busted" class="screen hidden">
+  <div class="big-word">BUSTED</div>
+  <div class="fine">Fine paid: <span id="busted-fine">$100</span></div>
+  <button id="btn-respawn" class="btn">Back on the streets</button>
+  <div class="hint">Press Enter to continue</div>
+</div>
+
+<div id="screen-wasted" class="screen hidden">
+  <div class="big-word">WASTED</div>
+  <div class="fine">Hospital bill: <span id="wasted-fine">$100</span></div>
+  <button id="btn-respawn2" class="btn">Back on the streets</button>
+  <div class="hint">Press Enter to continue</div>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
