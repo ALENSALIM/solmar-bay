@@ -1,160 +1,193 @@
-// The law: a wanted level from 0 to 5 stars. Crimes add heat; the police send cars
-// that ram and chase, and officers on foot at three stars and up. Lay low and the
-// heat fades; get caught on foot and it is over.
-import { clamp, distance2D } from './random.js';
+// Police for Solmar Bay: the wanted level, pursuit cars that chase the player,
+// foot officers at higher levels, and the busted check.
 
-export function createPolice(G) {
-  const { city, rng } = G;
-  let stars = 0;
-  let heat = 0;
-  let lastCrimeAt = -100;
-  let decayTimer = 0;
-  let spawnTimer = 0;
-  let officerTimer = 0;
-  let sirenTimer = 0;
-  const pursuitCars = [];
+import * as THREE from 'three';
+import { clamp } from './random.js';
+import { makeCarMesh } from './vehicles.js';
+import { ROAD_LINES } from './city.js';
 
-  function wantedLevel() { return stars; }
-
-  function addHeat(amount, crime) {
-    if (G.screen !== 'play') return;
-    heat += amount;
-    lastCrimeAt = G.time;
-    const next = clamp(Math.floor(heat), 0, 5);
-    if (next > stars) {
-      stars = next;
-      G.hud.toast(stars >= 3 ? `WANTED — ${stars} stars! The whole force is after you.` : `Wanted level ${stars} star${stars > 1 ? 's' : ''}.`);
-      G.audio.sirenBlip();
-    }
+export class Police {
+  constructor(scene, fleet, crowd, audio) {
+    this.scene = scene;
+    this.fleet = fleet;
+    this.crowd = crowd;
+    this.audio = audio;
+    this.wanted = 0;
+    this.pursuit = [];
+    this.officers = [];
+    this.bustedTimer = 0;
+    this.quietTimer = 0;
+    this.spawnTimer = 0;
+    this.officerTimer = 1;
+    this.onBusted = null;
+    this.flash = 0;
   }
 
-  function clearWanted() {
-    stars = 0;
-    heat = 0;
-    for (const car of pursuitCars) G.vehicles.removeCar(car);
-    pursuitCars.length = 0;
-    for (const off of G.people.officers.slice()) {
-      G.scene.remove(off.mesh);
-      G.people.officers.splice(G.people.officers.indexOf(off), 1);
-    }
+  setWanted(n) {
+    this.wanted = clamp(Math.round(n), 0, 5);
+    this.audio.setSiren(this.wanted > 0);
   }
 
-  function spawnPursuitCar() {
-    const p = G.player;
-    const angle = rng.range(0, Math.PI * 2);
-    const spot = city.nearestRoadPoint(p.pos.x + Math.sin(angle) * 55, p.pos.z + Math.cos(angle) * 55);
-    const car = G.vehicles.addCar('police', spot.x, spot.z, rng.range(0, Math.PI * 2), 0x1a1d24, 'Interceptor');
-    car.pursuing = true;
-    car.cruise = 20;
-    pursuitCars.push(car);
+  addWanted(n) {
+    this.setWanted(this.wanted + n);
+    this.quietTimer = 0;
+  }
+
+  clearWanted() {
+    this.setWanted(0);
+    this.clearPursuit();
+  }
+
+  clearPursuit() {
+    for (const c of this.pursuit) this.scene.remove(c.mesh);
+    this.pursuit = [];
+    for (const o of this.officers) this.scene.remove(o.mesh);
+    this.officers = [];
+    this.bustedTimer = 0;
+  }
+
+  // Spawn a pursuit car. With exact coordinates it is placed there (used by
+  // the screenshot staging); otherwise it appears on a random nearby road.
+  spawnPursuitCar(px, pz, exactX, exactZ) {
+    let x;
+    let z;
+    if (typeof exactX === 'number' && typeof exactZ === 'number') {
+      x = exactX;
+      z = exactZ;
+    } else {
+      const line = ROAD_LINES[Math.floor(Math.random() * ROAD_LINES.length)];
+      const axis = Math.random() < 0.5 ? 'x' : 'z';
+      x = axis === 'x' ? clamp(px + (Math.random() < 0.5 ? -50 : 50), -190, 190) : line;
+      z = axis === 'x' ? line : clamp(pz + (Math.random() < 0.5 ? -50 : 50), -190, 190);
+    }
+    const mesh = makeCarMesh(0x1c2733, 'police');
+    mesh.position.set(x, 0, z);
+    this.scene.add(mesh);
+    const car = { mesh, heading: 0, speed: 0, maxSpeed: 30 + this.wanted * 1.6, kind: 'police', hp: 100 };
+    this.pursuit.push(car);
     return car;
   }
 
-  function drivePursuit(car, dt) {
-    const p = G.player;
-    const target = p.car ? p.car.pos : p.pos;
-    const dx = target.x - car.pos.x;
-    const dz = target.z - car.pos.z;
-    const d = Math.hypot(dx, dz);
-    const wantYaw = Math.atan2(dx, dz);
-    let dyaw = wantYaw - car.yaw;
-    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
-    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-    const steer = clamp(dyaw, -1.8 * dt, 1.8 * dt);
-    car.yaw += steer;
-    const wantSpeed = d > 12 ? 30 : 16;
-    car.speed += clamp(wantSpeed - car.speed, -20 * dt, 14 * dt);
-    car.pos.x += Math.sin(car.yaw) * car.speed * dt;
-    car.pos.z += Math.cos(car.yaw) * car.speed * dt;
-    city.resolveCircle(car.pos, 2.4);
-    car.mesh.rotation.y = car.yaw;
-    // Ram the player.
-    if (p.car && d < 4.6) {
-      p.car.speed *= 0.82;
-      car.speed *= 0.7;
-      G.audio.crash();
-      p.damage(3, 'police');
-    } else if (!p.car && d < 2.6) {
-      // Caught on foot: the bust meter runs in update().
-      car.speed = 0;
-    }
-    const wheels = car.mesh.userData.wheels;
-    for (const wheel of wheels) wheel.rotation.x += car.speed * dt * 1.4;
+  spawnOfficer(px, pz) {
+    const mesh = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.72, 1.0, 0.42), new THREE.MeshLambertMaterial({ color: 0x1c2a44 }));
+    body.position.y = 1.05;
+    body.castShadow = true;
+    mesh.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), new THREE.MeshLambertMaterial({ color: 0xe8b98a }));
+    head.position.y = 1.78;
+    mesh.add(head);
+    const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.3, 0.14, 10), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+    hat.position.y = 1.98;
+    mesh.add(hat);
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.55, 0.35), new THREE.MeshLambertMaterial({ color: 0x1c2a44 }));
+    legs.position.y = 0.28;
+    mesh.add(legs);
+    mesh.position.set(px + (Math.random() - 0.5) * 30, 0, pz + (Math.random() - 0.5) * 30);
+    this.scene.add(mesh);
+    const officer = { mesh, speed: 4.2 + this.wanted * 0.3, heading: 0, alive: true, health: 100 };
+    this.officers.push(officer);
+    return officer;
   }
 
-  let bustTimer = 0;
-
-  function update(dt) {
-    if (G.screen !== 'play') return;
-    const p = G.player;
-    // Wanted decays when the player has been clean for a while.
-    if (stars > 0 && G.time - lastCrimeAt > 14) {
-      decayTimer += dt;
-      if (decayTimer > 10) {
-        decayTimer = 0;
-        heat = Math.max(0, heat - 1);
-        stars = clamp(Math.floor(heat), 0, 5);
-        if (stars === 0) {
-          G.hud.toast('You lost them. The heat is off.');
-          clearWanted();
-        }
+  update(dt, player) {
+    const p = player.pos;
+    this.flash += dt;
+    for (const c of this.pursuit) {
+      if (c.mesh.userData.lights) {
+        const on = Math.floor(this.flash * 4) % 2 === 0;
+        c.mesh.userData.lights[0].material.color.setHex(on ? 0xff2222 : 0x551111);
+        c.mesh.userData.lights[1].material.color.setHex(on ? 0x1133aa : 0x2266ff);
       }
-    } else {
-      decayTimer = 0;
     }
+
+    if (this.wanted <= 0) {
+      this.quietTimer = 0;
+      if (this.pursuit.length > 0 || this.officers.length > 0) this.clearPursuit();
+      return;
+    }
+
+    // Wanted decays after a long quiet stretch with no new crime.
+    this.quietTimer += dt;
+    if (this.quietTimer > 45) {
+      this.setWanted(this.wanted - 1);
+      this.quietTimer = 0;
+    }
+
     // Keep the right number of pursuit cars on the road.
-    const wantCars = stars === 0 ? 0 : stars === 1 ? 1 : stars === 2 ? 2 : stars === 3 ? 3 : 4;
-    spawnTimer -= dt;
-    if (pursuitCars.length < wantCars && spawnTimer <= 0) {
-      spawnTimer = 3;
-      spawnPursuitCar();
+    const wantCars = Math.min(1 + Math.floor(this.wanted / 2), 3);
+    this.spawnTimer -= dt;
+    if (this.pursuit.length < wantCars && this.spawnTimer <= 0) {
+      this.spawnPursuitCar(p.x, p.z);
+      this.spawnTimer = 2.5;
     }
-    if (pursuitCars.length > wantCars) {
-      const extra = pursuitCars.pop();
-      G.vehicles.removeCar(extra);
+    const wantOfficers = this.wanted >= 3 ? Math.min(this.wanted - 2, 3) : 0;
+    this.officerTimer -= dt;
+    if (this.officers.filter((o) => o.alive).length < wantOfficers && this.officerTimer <= 0) {
+      this.spawnOfficer(p.x, p.z);
+      this.officerTimer = 3;
     }
-    for (const car of pursuitCars) drivePursuit(car, dt);
-    // Officers on foot at 3 stars and up.
-    officerTimer -= dt;
-    if (stars >= 3 && G.people.officers.length < stars - 1 && officerTimer <= 0) {
-      officerTimer = 5;
-      const angle = rng.range(0, Math.PI * 2);
-      G.people.spawnOfficer(
-        clamp(p.pos.x + Math.sin(angle) * 25, -350, 350),
-        clamp(p.pos.z + Math.cos(angle) * 25, -350, 420),
-      );
-    }
-    // Siren wail while wanted.
-    if (stars > 0) {
-      sirenTimer -= dt;
-      if (sirenTimer <= 0) {
-        sirenTimer = 4;
-        G.audio.sirenBlip();
+
+    // Pursuit cars steer toward the player and try to ram.
+    for (const c of this.pursuit) {
+      const dx = p.x - c.mesh.position.x;
+      const dz = p.z - c.mesh.position.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      const wantHeading = Math.atan2(dx, dz);
+      let dh = wantHeading - c.heading;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      c.heading += clamp(dh, -1.6 * dt, 1.6 * dt);
+      const targetSpeed = d > 6 ? c.maxSpeed : c.maxSpeed * 0.5;
+      c.speed += clamp(targetSpeed - c.speed, -20 * dt, 12 * dt);
+      c.mesh.position.x += Math.sin(c.heading) * c.speed * dt;
+      c.mesh.position.z += Math.cos(c.heading) * c.speed * dt;
+      c.mesh.position.x = clamp(c.mesh.position.x, -240, 240);
+      c.mesh.position.z = clamp(c.mesh.position.z, -240, 320);
+      c.mesh.rotation.y = c.heading;
+      const spin = (c.speed * dt) / 0.42;
+      for (const w of c.mesh.userData.wheels) w.rotation.x += spin;
+      if (d < 3.4) {
+        // Ram: shove the player's car and hurt the player a little.
+        if (player.inCar) {
+          player.carSpeed *= 0.6;
+          player.damage(2);
+        } else {
+          player.damage(6);
+        }
+        c.speed *= 0.5;
+        c.mesh.position.x -= Math.sin(c.heading) * 1.2;
+        c.mesh.position.z -= Math.cos(c.heading) * 1.2;
       }
     }
-    // Busted: a pursuit car sits on the player on foot.
-    const nearCop = pursuitCars.some((car) => distance2D(car.pos.x, car.pos.z, p.pos.x, p.pos.z) < 3.2);
-    if (nearCop && !p.car) {
-      bustTimer += dt;
-      if (bustTimer > 1.2) {
-        bustTimer = 0;
-        G.gameOver('busted');
+
+    // Foot officers run the player down; standing next to one too long gets you busted.
+    let nearOfficer = false;
+    for (const o of this.officers) {
+      if (!o.alive) continue;
+      const dx = p.x - o.mesh.position.x;
+      const dz = p.z - o.mesh.position.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      const wantHeading = Math.atan2(dx, dz);
+      let dh = wantHeading - o.heading;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      o.heading += clamp(dh, -3 * dt, 3 * dt);
+      o.mesh.rotation.y = o.heading;
+      if (d > 1.6) {
+        o.mesh.position.x += Math.sin(o.heading) * o.speed * dt;
+        o.mesh.position.z += Math.cos(o.heading) * o.speed * dt;
+      }
+      if (d < 3 && !player.inCar) nearOfficer = true;
+    }
+    if (nearOfficer) {
+      this.bustedTimer += dt;
+      if (this.bustedTimer > 2.5 && this.onBusted) {
+        this.bustedTimer = 0;
+        this.onBusted();
       }
     } else {
-      bustTimer = 0;
+      this.bustedTimer = Math.max(0, this.bustedTimer - dt * 2);
     }
   }
-
-  function setWanted(n) {
-    // For staged screenshot scenes: set the wanted level and put the pursuit
-    // cars on the road at once.
-    stars = clamp(n, 0, 5);
-    heat = stars;
-    lastCrimeAt = G.time;
-    while (pursuitCars.length < (stars === 0 ? 0 : stars === 1 ? 1 : stars === 2 ? 2 : stars === 3 ? 3 : 4)) {
-      spawnPursuitCar();
-    }
-  }
-
-  return { addHeat, clearWanted, update, wantedLevel, setWanted, get stars() { return stars; }, pursuitCars };
 }
