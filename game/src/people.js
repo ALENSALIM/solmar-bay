@@ -1,185 +1,174 @@
-// The people of Solmar Bay: pedestrians strolling the sidewalks who flee from
-// gunfire and speeding cars, and police officers on foot at higher wanted levels.
+// People for Solmar Bay: pedestrians strolling the sidewalks and armed
+// enemies that missions spawn. Pedestrians flee when a gun goes off nearby.
+
 import * as THREE from 'three';
-import { clamp, distance2D } from './random.js';
+import { createRng, clamp, angleLerp, dist2d } from './random.js';
+import { ROAD_LINES, CITY_EDGE } from './city.js';
 
-const SKINS = [0xf2c9a0, 0xc98d5f, 0x8a5a34, 0xe8b88a];
-const SHIRTS = [0xd93030, 0x2f6fd0, 0xf2c94c, 0x2fbf71, 0xffffff, 0x9b59d0, 0xff8c42, 0x4fc3f7];
-const PANTS = [0x2c3e50, 0x5d6d7e, 0x1a1a1a, 0x7d6608];
+const SHIRT_COLORS = [0xe8e8e8, 0x4a90d9, 0xe86a5a, 0x58b368, 0xf2d13c, 0x8a5ab8, 0xe87a2e];
 
-export function buildPersonMesh(shirtColor, pantsColor, skinColor, isCop) {
-  const group = new THREE.Group();
-  const shirt = new THREE.MeshLambertMaterial({ color: shirtColor });
-  const pants = new THREE.MeshLambertMaterial({ color: pantsColor });
-  const skin = new THREE.MeshLambertMaterial({ color: skinColor });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.34), shirt);
-  torso.position.y = 1.12;
-  group.add(torso);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.36, 0.32), skin);
-  head.position.y = 1.66;
-  group.add(head);
-  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.34), new THREE.MeshLambertMaterial({ color: 0x1a1210 }));
-  hair.position.y = 1.86;
-  group.add(hair);
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.26), pants);
-  legL.position.set(-0.16, 0.39, 0);
-  group.add(legL);
-  const legR = legL.clone();
-  legR.position.x = 0.16;
-  group.add(legR);
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.66, 0.2), shirt);
-  armL.position.set(-0.42, 1.14, 0);
-  group.add(armL);
-  const armR = armL.clone();
-  armR.position.x = 0.42;
-  group.add(armR);
-  if (isCop) {
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.1, 0.36), new THREE.MeshLambertMaterial({ color: 0x1a2a4a }));
-    cap.position.y = 1.92;
-    group.add(cap);
-    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.02), new THREE.MeshBasicMaterial({ color: 0xffd23e }));
-    badge.position.set(0.16, 1.3, 0.18);
-    group.add(badge);
-  }
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.5, 12),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }),
+function makePersonMesh(shirt, pants, skin) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 1.0, 0.4),
+    new THREE.MeshLambertMaterial({ color: shirt }),
   );
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.02;
-  group.add(shadow);
-  group.userData.limbs = { legL, legR, armL, armR, torso, head };
-  return group;
+  body.position.y = 1.05;
+  body.castShadow = true;
+  g.add(body);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 10, 8),
+    new THREE.MeshLambertMaterial({ color: skin }),
+  );
+  head.position.y = 1.78;
+  head.castShadow = true;
+  g.add(head);
+  const legs = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.55, 0.35),
+    new THREE.MeshLambertMaterial({ color: pants }),
+  );
+  legs.position.y = 0.28;
+  g.add(legs);
+  return g;
 }
 
-function animateWalk(mesh, phase, speed01) {
-  const limbs = mesh.userData.limbs;
-  const swing = Math.sin(phase) * 0.55 * speed01;
-  limbs.legL.rotation.x = swing;
-  limbs.legR.rotation.x = -swing;
-  limbs.armL.rotation.x = -swing * 0.8;
-  limbs.armR.rotation.x = swing * 0.8;
-  limbs.torso.position.y = 1.12 + Math.abs(Math.sin(phase)) * 0.04 * speed01;
-}
-
-export function createPeople(G) {
-  const { scene, city, rng } = G;
-  const peds = [];
-  const officers = [];
-
-  function sidewalkPoint() {
-    const road = rng.pick([-320, -240, -160, -80, 0, 80, 160, 240, 320]);
-    const along = rng.range(-320, 320);
-    if (rng.chance(0.5)) return { x: along, z: road + rng.pick([-9.5, 9.5]) };
-    return { x: road + rng.pick([-9.5, 9.5]), z: along };
+export class Crowd {
+  constructor(scene, city) {
+    this.scene = scene;
+    this.city = city;
+    this.rng = createRng(45177);
+    this.peds = [];
+    this.enemies = [];
+    this.onEnemyShoot = null;
+    for (let i = 0; i < 18; i++) this.spawnPed();
   }
 
-  function spawnPed() {
-    const p = sidewalkPoint();
-    const mesh = buildPersonMesh(rng.pick(SHIRTS), rng.pick(PANTS), rng.pick(SKINS), false);
-    mesh.position.set(p.x, 0, p.z);
-    scene.add(mesh);
+  spawnPed(x, z) {
+    const line = this.rng.pick(ROAD_LINES);
+    const axis = this.rng.pick(['x', 'z']);
+    const d = this.rng.range(-180, 180);
+    const px = x !== undefined ? x : (axis === 'x' ? d : line + this.rng.pick([-8.5, 8.5]));
+    const pz = z !== undefined ? z : (axis === 'x' ? line + this.rng.pick([-8.5, 8.5]) : d);
+    const mesh = makePersonMesh(
+      this.rng.pick(SHIRT_COLORS),
+      this.rng.pick([0x2e3440, 0x5a4a3a, 0x3a5a8a]),
+      this.rng.pick([0xe8b98a, 0xc98a5a, 0x8a5a3a, 0xf0c8a0]),
+    );
+    mesh.position.set(px, 0, pz);
+    this.scene.add(mesh);
     const ped = {
-      mesh, pos: mesh.position, yaw: rng.range(0, Math.PI * 2),
-      speed: rng.range(1.2, 2.2), phase: rng.range(0, 6), state: 'walk',
-      target: sidewalkPoint(), fleeTimer: 0, health: 100,
+      mesh, axis, line, dir: this.rng.pick([-1, 1]),
+      speed: this.rng.range(1.2, 2.4), heading: 0, flee: 0,
     };
-    peds.push(ped);
+    ped.heading = axis === 'x' ? (ped.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (ped.dir > 0 ? 0 : Math.PI);
+    this.peds.push(ped);
     return ped;
   }
 
-  function spawnOfficer(x, z) {
-    const mesh = buildPersonMesh(0x1a2a4a, 0x1a2a4a, rng.pick(SKINS), true);
-    mesh.position.set(x, 0, z);
-    scene.add(mesh);
-    const officer = {
-      mesh, pos: mesh.position, yaw: 0, speed: 3.4, phase: 0,
-      state: 'chase', shootTimer: rng.range(0.5, 1.5), health: 100,
-    };
-    officers.push(officer);
-    return officer;
-  }
-
-  function scarePeds(x, z, radius) {
-    for (const ped of peds) {
-      if (distance2D(ped.pos.x, ped.pos.z, x, z) < radius) {
-        ped.state = 'flee';
-        ped.fleeTimer = 3;
-        ped.target = {
-          x: clamp(ped.pos.x + (ped.pos.x - x) * 2, -350, 350),
-          z: clamp(ped.pos.z + (ped.pos.z - z) * 2, -350, 420),
-        };
+  scare(x, z, radius) {
+    for (const p of this.peds) {
+      if (dist2d(p.mesh.position.x, p.mesh.position.z, x, z) < radius) {
+        p.flee = 4;
+        p.speed = 5;
       }
     }
   }
 
-  function updatePeds(dt) {
-    for (const ped of peds) {
-      const dx = ped.target.x - ped.pos.x;
-      const dz = ped.target.z - ped.pos.z;
-      const d = Math.hypot(dx, dz);
-      if (d < 2) {
-        if (ped.state === 'flee') { ped.state = 'walk'; ped.fleeTimer = 0; }
-        ped.target = sidewalkPoint();
-        continue;
-      }
-      const speed = ped.state === 'flee' ? 5.2 : ped.speed;
-      const wantYaw = Math.atan2(dx, dz);
-      let dyaw = wantYaw - ped.yaw;
-      while (dyaw > Math.PI) dyaw -= Math.PI * 2;
-      while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-      ped.yaw += clamp(dyaw, -4 * dt, 4 * dt);
-      ped.pos.x += Math.sin(ped.yaw) * speed * dt;
-      ped.pos.z += Math.cos(ped.yaw) * speed * dt;
-      city.resolveCircle(ped.pos, 0.5);
-      ped.phase += dt * speed * 3.2;
-      ped.mesh.rotation.y = ped.yaw;
-      animateWalk(ped.mesh, ped.phase, clamp(speed / 5, 0.2, 1));
-      if (ped.fleeTimer > 0) ped.fleeTimer -= dt;
+  spawnEnemies(n, cx, cz) {
+    const made = [];
+    for (let i = 0; i < n; i++) {
+      const x = cx + this.rng.range(-14, 14);
+      const z = cz + this.rng.range(-14, 14);
+      const mesh = makePersonMesh(0x8a1f1f, 0x222222, 0xc98a5a);
+      const gun = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.12, 0.7),
+        new THREE.MeshLambertMaterial({ color: 0x111111 }),
+      );
+      gun.position.set(0.35, 1.15, 0.4);
+      mesh.add(gun);
+      mesh.position.set(x, 0, z);
+      this.scene.add(mesh);
+      const e = { mesh, health: 100, alive: true, shootCd: this.rng.range(0.5, 1.5), speed: 3.4, heading: 0 };
+      this.enemies.push(e);
+      made.push(e);
     }
+    return made;
   }
 
-  function updateOfficers(dt, playerPos) {
-    for (let i = officers.length - 1; i >= 0; i--) {
-      const off = officers[i];
-      const d = distance2D(off.pos.x, off.pos.z, playerPos.x, playerPos.z);
-      if (d > 90) {
-        scene.remove(off.mesh);
-        officers.splice(i, 1);
-        continue;
+  clearEnemies() {
+    for (const e of this.enemies) this.scene.remove(e.mesh);
+    this.enemies = [];
+  }
+
+  livingEnemies() {
+    return this.enemies.filter((e) => e.alive);
+  }
+
+  damageEnemy(enemy, dmg) {
+    if (!enemy.alive) return false;
+    enemy.health -= dmg;
+    if (enemy.health <= 0) {
+      enemy.alive = false;
+      enemy.mesh.rotation.x = -Math.PI / 2;
+      enemy.mesh.position.y = 0.3;
+      return true;
+    }
+    return false;
+  }
+
+  update(dt, playerPos, combat) {
+    for (const p of this.peds) {
+      if (p.flee > 0) {
+        p.flee -= dt;
+        if (p.flee <= 0) p.speed = this.rng.range(1.2, 2.4);
       }
-      const dx = playerPos.x - off.pos.x;
-      const dz = playerPos.z - off.pos.z;
-      const wantYaw = Math.atan2(dx, dz);
-      let dyaw = wantYaw - off.yaw;
-      while (dyaw > Math.PI) dyaw -= Math.PI * 2;
-      while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-      off.yaw += clamp(dyaw, -5 * dt, 5 * dt);
-      if (d > 14) {
-        off.pos.x += Math.sin(off.yaw) * off.speed * dt;
-        off.pos.z += Math.cos(off.yaw) * off.speed * dt;
-        off.phase += dt * 10;
-        animateWalk(off.mesh, off.phase, 1);
-      } else {
-        off.shootTimer -= dt;
-        if (off.shootTimer <= 0) {
-          off.shootTimer = rng.range(0.9, 1.6);
-          G.combat.officerShot(off);
+      const step = p.speed * dt;
+      if (p.axis === 'x') {
+        p.mesh.position.x += step * p.dir;
+        p.mesh.position.z = p.line + (p.dir > 0 ? 8.5 : -8.5);
+        if (Math.abs(p.mesh.position.x) > CITY_EDGE) {
+          p.dir *= -1;
+          p.axis = 'z';
+          p.line = this.rng.pick(ROAD_LINES);
+          p.mesh.position.x = clamp(p.mesh.position.x, -CITY_EDGE, CITY_EDGE);
         }
-        animateWalk(off.mesh, off.phase, 0);
+      } else {
+        p.mesh.position.z += step * p.dir;
+        p.mesh.position.x = p.line + (p.dir > 0 ? 8.5 : -8.5);
+        if (Math.abs(p.mesh.position.z) > CITY_EDGE) {
+          p.dir *= -1;
+          p.axis = 'x';
+          p.line = this.rng.pick(ROAD_LINES);
+          p.mesh.position.z = clamp(p.mesh.position.z, -CITY_EDGE, CITY_EDGE);
+        }
       }
-      city.resolveCircle(off.pos, 0.5);
-      off.mesh.rotation.y = off.yaw;
+      const want = p.axis === 'x' ? (p.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (p.dir > 0 ? 0 : Math.PI);
+      p.heading = angleLerp(p.heading, want, Math.min(1, dt * 5));
+      p.mesh.rotation.y = p.heading;
+      p.mesh.position.y = Math.abs(Math.sin(performance.now() * 0.008 + p.mesh.position.x)) * 0.05;
     }
+
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const dx = playerPos.x - e.mesh.position.x;
+      const dz = playerPos.z - e.mesh.position.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      const wantHeading = Math.atan2(dx, dz);
+      e.heading = angleLerp(e.heading, wantHeading, Math.min(1, dt * 6));
+      e.mesh.rotation.y = e.heading;
+      if (d > 9) {
+        e.mesh.position.x += Math.sin(e.heading) * e.speed * dt;
+        e.mesh.position.z += Math.cos(e.heading) * e.speed * dt;
+        this.city.resolveCircle(e.mesh.position, 0.5);
+      }
+      e.shootCd -= dt;
+      if (e.shootCd <= 0 && d < 42) {
+        e.shootCd = this.rng.range(1.1, 1.9);
+        if (this.onEnemyShoot) {
+          this.onEnemyShoot(e, { x: playerPos.x, y: 1.2, z: playerPos.z });
+        }
+      }
+    }
+    void combat;
   }
-
-  function removePed(ped) {
-    scene.remove(ped.mesh);
-    const i = peds.indexOf(ped);
-    if (i >= 0) peds.splice(i, 1);
-  }
-
-  for (let i = 0; i < 18; i++) spawnPed();
-
-  return { peds, officers, spawnPed, spawnOfficer, scarePeds, updatePeds, updateOfficers, removePed };
 }
