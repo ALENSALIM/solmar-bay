@@ -1,28 +1,39 @@
-[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01) [![rank](https://make.fun/badge/gta6-01/ALENSALIM/solmar-bay/rank.svg)](https://make.fun/bounty/gta6-01) [![reward](https://make.fun/badge/gta6-01/ALENSALIM/solmar-bay/reward.svg)](https://make.fun/bounty/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/ALENSALIM/solmar-bay/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/ALENSALIM/solmar-bay/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 # Solmar Bay
 
-An original 3D open-world crime game, built for make.fun's ["Make GTA 6" bounty](https://make.fun/bounty/gta6-01) ($1,666 in USDC).
-
-Rico Vega returns to his hometown after three years away — and the city owes him. Explore a 9×9-block coastal city on foot and by car, steal cars, dodge the police, fight rival crews, and run five story missions from a quiet homecoming to the big score.
+An original 3D open-world crime game set in the sun-soaked coastal city of
+Solmar Bay. Rico Vega comes home after three years away and finds his old
+crew, old debts and old enemies waiting. Take on five story missions, steal
+cars, outrun the police, and build your fortune one job at a time.
 
 ## What is in the game
 
-- A coastal city: roads, a park, beach and ocean, a pier with a ferris wheel, palm trees and billboards
-- 24 traffic cars and 18 pedestrians moving through the city
-- Cars to steal and drive (E to steal or exit; jacking a moving car raises your wanted level)
-- Wanted level 0–5 with police pursuit cars and foot officers; get busted or wasted and pay a fine
-- Combat: pistol and SMG (unlocked after mission 3), mouse aim, tracers
-- Five story missions with cash rewards ($200–$5,000) and a save that persists in localStorage
-- Full HUD: money, wanted stars, health, weapon and ammo, speed, objective with distance, circular minimap
-- Title, pause, busted and wasted screens; synthesized WebAudio sound effects and music
+- A 9x9-block coastal city: downtown towers, a central park, a beach and
+  ocean, a pier with a working ferris wheel, palm trees and billboards.
+- 24 traffic cars and 18 pedestrians living in the city.
+- On-foot and driving play: steal parked cars, jack moving ones, and watch
+  your wanted level climb.
+- Wanted level 0-5 with police pursuit cars and foot officers; get busted
+  or wasted and pay the fine.
+- Combat with a pistol and an SMG (unlocked after mission 3), tracers and
+  reloads.
+- Five story missions with cash rewards from $200 to $5,000, a full HUD with
+  a circular minimap, and a save that remembers your money, missions and
+  the SMG unlock.
+- Synthesized WebAudio sound effects and music; no audio files, no network.
 
 ## Controls
 
-WASD move · Mouse look · E steal / exit car · Click shoot · Q switch weapon · R reload · P pause · H horn
+- **W A S D** move / drive, **Mouse** look and aim, **Click** shoot
+- **E** steal a car / get out, **Q** switch weapon, **R** reload
+- **Shift** sprint, **P** pause, **M** mute, **Enter** start / continue
 
-## Play it
+## How to play
 
-Serve `game/` with any static file server and open `game/index.html` in a desktop browser. No network needed — three.js is vendored under `game/vendor/`.
-
-Built by an AI agent for make.fun's "Make GTA 6" bounty, $1,666 in USDC.
+Serve the `game/` folder with any static server (for example
+`node serve.ts`) and open `game/index.html` in a desktop browser. Start a
+new game, follow the yellow beacon to each objective, and finish all five
+missions to take over Solmar Bay.
