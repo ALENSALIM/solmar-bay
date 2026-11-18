@@ -1,28 +1,43 @@
-// Solmar Bay entrypoint: hands the game in by copying game/ and screenshots/
-// into the output directory and writing the dossier the kit's library builds.
-// Runs on Node 22 with the standard library only, no network, deterministic:
-// the same repository always writes the same bytes.
-
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+// Solmar Bay entry program (Node 22, standard library only).
+// Copies game/ and screenshots/ into the output directory and writes
+// dossier.json with the kit's buildDossier helper.
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = dirname(fileURLToPath(import.meta.url));
 const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
 
-mkdirSync(outDir, { recursive: true });
-for (const name of ['game', 'screenshots']) {
-  const from = join(here, name);
-  const to = join(outDir, name);
-  if (!existsSync(from)) throw new Error(`missing ${name}/ in the repository`);
-  cpSync(from, to, { recursive: true, force: true });
+function copyTree(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  for (const name of readdirSync(src, { withFileTypes: true })) {
+    const from = join(src, name.name);
+    const to = join(dest, name.name);
+    if (name.isDirectory()) copyTree(from, to);
+    else if (name.isFile()) cpSync(from, to);
+  }
 }
 
-const dossier = buildDossier(outDir, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 50331648,
-});
-writeFileSync(join(outDir, 'dossier.json'), dossier);
+function main() {
+  const gameSrc = join(repoRoot, 'game');
+  const shotsSrc = join(repoRoot, 'screenshots');
+  if (!existsSync(gameSrc)) throw new Error('game/ is missing from the repository');
+  if (!existsSync(shotsSrc)) throw new Error('screenshots/ is missing from the repository');
+  mkdirSync(outDir, { recursive: true });
+  // Start from a clean output so a stale file can never leak into the entry.
+  rmSync(join(outDir, 'game'), { recursive: true, force: true });
+  rmSync(join(outDir, 'screenshots'), { recursive: true, force: true });
+  copyTree(gameSrc, join(outDir, 'game'));
+  copyTree(shotsSrc, join(outDir, 'screenshots'));
+  const dossier = buildDossier(outDir, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+  });
+  writeFileSync(join(outDir, 'dossier.json'), dossier);
+  console.log(`wrote ${join(outDir, 'dossier.json')} (${dossier.length} bytes)`);
+}
+
+main();
