@@ -1,12 +1,14 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solmar Bay — Open World Crime Game</title>
+<title>Solmar Bay — an open-world crime game</title>
 <style>
-  html, body { margin: 0; padding: 0; overflow: hidden; background: #0a1420; }
-  canvas { display: block; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0a1e3c; }
+  #game { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; inset: 0; pointer-events: none; font-family: "Segoe UI", system-ui, sans-serif; }
+  #hud .screen { pointer-events: auto; }
 </style>
 <script type="importmap">
 {
@@ -17,14 +19,8 @@
 </script>
 </head>
 <body>
-<script>
-  window.__errors = [];
-  window.addEventListener('error', (e) => window.__errors.push(String(e.message || e.error)));
-  window.addEventListener('unhandledrejection', (e) => window.__errors.push('rejection: ' + String(e.reason)));
-</script>
-<script type="module">
-  import { startGame } from './src/main.js';
-  startGame();
-</script>
+<canvas id="game"></canvas>
+<div id="hud"></div>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>
