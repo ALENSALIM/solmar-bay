@@ -1,41 +1,39 @@
-// Save / load progress in localStorage. Guarded: headless or private modes
-// can throw, and the game must keep working without a save.
-const KEY = 'solmar-bay-save-v1';
-
-export function defaultSave() {
-  return { money: 250, missionsDone: [], smgUnlocked: false, best: 0 };
-}
+// localStorage save for Solmar Bay: money, missions finished, SMG unlock
+// and the best money total the player has ever held.
+export const SAVE_KEY = 'solmar-bay-save-v1';
 
 export function loadSave() {
   try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return defaultSave();
+    const raw = window.localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
     const data = JSON.parse(raw);
-    const base = defaultSave();
+    if (typeof data !== 'object' || data === null) return null;
     return {
-      money: typeof data.money === 'number' ? data.money : base.money,
-      missionsDone: Array.isArray(data.missionsDone) ? data.missionsDone : [],
-      smgUnlocked: !!data.smgUnlocked,
-      best: typeof data.best === 'number' ? data.best : 0,
+      money: Number.isFinite(data.money) ? data.money : 500,
+      missionsDone: Number.isFinite(data.missionsDone) ? data.missionsDone : 0,
+      smgUnlocked: data.smgUnlocked === true,
+      best: Number.isFinite(data.best) ? data.best : 0,
     };
-  } catch {
-    return defaultSave();
+  } catch (err) {
+    return null;
   }
 }
 
 export function writeSave(data) {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(data));
+    const safe = {
+      money: Math.max(0, Math.floor(data.money || 0)),
+      missionsDone: Math.max(0, Math.floor(data.missionsDone || 0)),
+      smgUnlocked: data.smgUnlocked === true,
+      best: Math.max(0, Math.floor(data.best || 0)),
+    };
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(safe));
     return true;
-  } catch {
+  } catch (err) {
     return false;
   }
 }
 
 export function clearSave() {
-  try {
-    window.localStorage.removeItem(KEY);
-  } catch {
-    // ignore
-  }
+  try { window.localStorage.removeItem(SAVE_KEY); } catch (err) { /* no save */ }
 }
